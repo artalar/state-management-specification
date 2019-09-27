@@ -1,5 +1,3 @@
-const { observable, computed, autorun } = require('mobx')
-
 // reducing console output
 console.error = e => console.log(
   'ERROR',
@@ -9,9 +7,11 @@ console.error = e => console.log(
 const TAX = 0.2
 
 // simple example thats may scale
-// to harible bugs at large application
+// to horrible bugs at large application
 describe('recalculations and exceptions', () => {
   describe('mobx', () => {
+    const { observable, computed, autorun } = require('mobx')
+
     const price = observable.box(0)
     const tax = computed(() => price.get() * TAX)
     const costCalculator = jest.fn(() => price.get() + tax.get())
