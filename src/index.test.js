@@ -46,7 +46,7 @@ describe('recalculations and exceptions', () => {
     }
     test(`
       should throw an error at updating
-      if recalculate throwns`,
+      if recalculation is throw an error`,
       () => {
         expectedCalls = expectedCalls
         // mobx here just log the error
@@ -56,18 +56,25 @@ describe('recalculations and exceptions', () => {
 
     test(`
       should not save any updates
-      if any dependeny throw an error`,
+      if any computed is throw an error`,
       () => {
         // mobx is not revert updates of observables
         // if its derived observables thrown
-        expect(valuesBeforeThrow.price).toBe(price.get())
+        expect(valuesBeforeThrow.price === price.get()).toBe(true)
       }
     )
 
     test(`
       should not calculate computed data
-      if one of dependencies thrown
-      (and save last valid result)`,
+      if one of dependencies is thrown an error`,
+      () => {
+        expect(costCalculator).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    test(`
+      should save last valid result
+      if one of dependencies is thrown an error`,
       () => {
         // here `cost` can not recalculated
         // becouse price was saved with incompatible type
@@ -85,26 +92,38 @@ describe('recalculations and exceptions', () => {
   })
 
   describe('redux', () => {
-    const { createStore } = require('redux')
-    const store = createStore((_, { payload }) => payload, 0)
-    const updatePrice = (price) => ({ type: 'UPDATE_PRICE', payload: price})
+    const { createStore, combineReducers } = require('redux')
+    const { createSelector } = require('reselect')
+    const store = createStore(combineReducers({
+      price: (state = 0, action) => {
+        if (action.type === 'UPDATE_PRICE') return action.payload
+        return state
+      }
+    }))
+    const setPrice = (price) => ({ type: 'UPDATE_PRICE', payload: price })
 
-    const taxSelector = () => store.getState() * TAX;
-    store.subscribe(taxSelector)
-
-    const costSelector = () => store.getState() + taxSelector();
-    const costCalculator = jest.fn(() => costSelector())
-    store.subscribe(costCalculator)
-
+    const priceSelector = (state) => state.price
+    const taxSelector = createSelector(
+      priceSelector,
+      (price) => price * TAX
+    )
+    const costCalculator = jest.fn((price, tax) => price + tax)
+    const costSelector = createSelector(
+      priceSelector,
+      taxSelector,
+      costCalculator
+    )
     const sideEffect = jest.fn()
     let expectedCalls = 0
 
-    expectedCalls++
-    costCalculator();
-    store.subscribe(() => sideEffect(costCalculator()))
+    const subscription = createSelector(
+      costSelector,
+      sideEffect
+    )
+    store.subscribe(() => subscription(store.getState()))
 
     expectedCalls++
-    store.dispatch(updatePrice(10))
+    store.dispatch(setPrice(10))
     test(`
       should recalculate one time
       even if updating 2 dependenies`,
@@ -122,34 +141,43 @@ describe('recalculations and exceptions', () => {
     )
 
     const valuesBeforeThrow = {
-      price: store.getState(),
-      cost: costSelector(),
+      price: priceSelector(store.getState()),
+      cost: costSelector(store.getState()),
     }
     test(`
       should throw an error at updating
-      if recalculate throwns`,
+      if recalculation is throw an error`,
       () => {
         expectedCalls = expectedCalls
-        expect(() => store.dispatch(updatePrice(110n)).toThrow())
+        expect(() => store.dispatch(setPrice(110n))).toThrow()
       }
     )
 
     test(`
       should not save any updates
-      if any dependeny throw an error`,
+      if any computed is throw an error`,
       () => {
-        expect(valuesBeforeThrow.price).toBe(store.getState())
+        // in redux computed (memoized selectors) values
+        // calculated in subscriptions, after store updates
+        expect(valuesBeforeThrow.price === priceSelector(store.getState())).toBe(true)
       }
     )
 
     test(`
       should not calculate computed data
-      if one of dependencies thrown
-      (and save last valid result)`,
+      if one of dependencies is thrown an error`,
+      () => {
+        expect(costCalculator).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    test(`
+      should save last valid result
+      if one of dependencies is thrown an error`,
       () => {
         // here `cost` can not recalculated
         // becouse price was saved with incompatible type
-        expect(valuesBeforeThrow.cost).toBe(costCalculator())
+        expect(valuesBeforeThrow.cost).toBe(costSelector(store.getState()))
       }
     )
 
@@ -167,17 +195,18 @@ describe('recalculations and exceptions', () => {
 
     const setPrice = declareAction()
 
-    const price = declareAtom(0, on => on(setPrice, (state, payload) => payload))
-    const { subscribe, dispatch, getState } = createStore(price)
-
-    const tax = map(price, price => price * TAX)
+    const priceAtom = declareAtom(0, on => on(setPrice, (state, payload) => payload))
+    const taxAtom = map(priceAtom, price => price * TAX)
     const costCalculator = jest.fn(([price, tax]) => price + tax)
-    const cost = map(combine([price, tax]), costCalculator)
+    const costAtom = map(combine([priceAtom, taxAtom]), costCalculator)
+    const { subscribe, dispatch, getState } = createStore(combine([priceAtom, taxAtom, costAtom]))
+
     const sideEffect = jest.fn()
     let expectedCalls = 0
 
     expectedCalls++
-    subscribe(cost, (cost) => sideEffect(cost))
+    sideEffect()
+    subscribe(costAtom, sideEffect)
 
     expectedCalls++
     dispatch(setPrice(10))
@@ -198,12 +227,12 @@ describe('recalculations and exceptions', () => {
     )
 
     const valuesBeforeThrow = {
-      price: getState(price),
-      cost: getState(cost),
+      price: getState(priceAtom),
+      cost: getState(costAtom),
     }
     test(`
       should throw an error at updating
-      if recalculate throwns`,
+      if recalculation is throw an error`,
       () => {
         expectedCalls = expectedCalls
         expect(() => dispatch(setPrice(110n)).toThrow())
@@ -212,18 +241,27 @@ describe('recalculations and exceptions', () => {
 
     test(`
       should not save any updates
-      if any dependeny throw an error`,
+      if any computed is throw an error`,
       () => {
-        expect(valuesBeforeThrow.price).toBe(getState(price))
+        expect(valuesBeforeThrow.price === getState(priceAtom)).toBe(true)
       }
     )
 
     test(`
       should not calculate computed data
-      if one of dependencies thrown
-      (and save last valid result)`,
+      if one of dependencies is thrown an error`,
       () => {
-        expect(valuesBeforeThrow.cost).toBe(getState(cost))
+        expect(costCalculator).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    test(`
+      should save last valid result
+      if one of dependencies is thrown an error`,
+      () => {
+        // here `cost` can not recalculated
+        // becouse price was saved with incompatible type
+        expect(valuesBeforeThrow.cost).toBe(getState(costAtom))
       }
     )
 
