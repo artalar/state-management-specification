@@ -83,4 +83,156 @@ describe('recalculations and exceptions', () => {
       }
     )
   })
+
+  describe('redux', () => {
+    const { createStore } = require('redux')
+    const store = createStore((_, { payload }) => payload, 0)
+    const updatePrice = (price) => ({ type: 'UPDATE_PRICE', payload: price})
+
+    const taxSelector = () => store.getState() * TAX;
+    store.subscribe(taxSelector)
+
+    const costSelector = () => store.getState() + taxSelector();
+    const costCalculator = jest.fn(() => costSelector())
+    store.subscribe(costCalculator)
+
+    const sideEffect = jest.fn()
+    let expectedCalls = 0
+
+    expectedCalls++
+    costCalculator();
+    store.subscribe(() => sideEffect(costCalculator()))
+
+    expectedCalls++
+    store.dispatch(updatePrice(10))
+    test(`
+      should recalculate one time
+      even if updating 2 dependenies`,
+      () => {
+        expect(costCalculator).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    test(`
+      should react one time
+      even if updating 2 dependenies`,
+      () => {
+        expect(sideEffect).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    const valuesBeforeThrow = {
+      price: store.getState(),
+      cost: costSelector(),
+    }
+    test(`
+      should throw an error at updating
+      if recalculate throwns`,
+      () => {
+        expectedCalls = expectedCalls
+        expect(() => store.dispatch(updatePrice(110n)).toThrow())
+      }
+    )
+
+    test(`
+      should not save any updates
+      if any dependeny throw an error`,
+      () => {
+        expect(valuesBeforeThrow.price).toBe(store.getState())
+      }
+    )
+
+    test(`
+      should not calculate computed data
+      if one of dependencies thrown
+      (and save last valid result)`,
+      () => {
+        // here `cost` can not recalculated
+        // becouse price was saved with incompatible type
+        expect(valuesBeforeThrow.cost).toBe(costCalculator())
+      }
+    )
+
+    test(`
+      should not react
+      if updating proccess has thrown`,
+      () => {
+        expect(sideEffect).toBeCalledTimes(expectedCalls)
+      }
+    )
+  })
+
+  describe('reatom', () => {
+    const { createStore, declareAtom, declareAction, map, combine } = require('@reatom/core')
+
+    const setPrice = declareAction()
+
+    const price = declareAtom(0, on => on(setPrice, (state, payload) => payload))
+    const { subscribe, dispatch, getState } = createStore(price)
+
+    const tax = map(price, price => price * TAX)
+    const costCalculator = jest.fn(([price, tax]) => price + tax)
+    const cost = map(combine([price, tax]), costCalculator)
+    const sideEffect = jest.fn()
+    let expectedCalls = 0
+
+    expectedCalls++
+    subscribe(cost, (cost) => sideEffect(cost))
+
+    expectedCalls++
+    dispatch(setPrice(10))
+    test(`
+      should recalculate one time
+      even if updating 2 dependenies`,
+      () => {
+        expect(costCalculator).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    test(`
+      should react one time
+      even if updating 2 dependenies`,
+      () => {
+        expect(sideEffect).toBeCalledTimes(expectedCalls)
+      }
+    )
+
+    const valuesBeforeThrow = {
+      price: getState(price),
+      cost: getState(cost),
+    }
+    test(`
+      should throw an error at updating
+      if recalculate throwns`,
+      () => {
+        expectedCalls = expectedCalls
+        expect(() => dispatch(setPrice(110n)).toThrow())
+      }
+    )
+
+    test(`
+      should not save any updates
+      if any dependeny throw an error`,
+      () => {
+        expect(valuesBeforeThrow.price).toBe(getState(price))
+      }
+    )
+
+    test(`
+      should not calculate computed data
+      if one of dependencies thrown
+      (and save last valid result)`,
+      () => {
+        expect(valuesBeforeThrow.cost).toBe(getState(cost))
+      }
+    )
+
+    test(`
+      should not react
+      if updating proccess has thrown`,
+      () => {
+        expect(sideEffect).toBeCalledTimes(expectedCalls)
+      }
+    )
+  })
 })
