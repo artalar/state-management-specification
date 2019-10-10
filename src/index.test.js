@@ -1,8 +1,13 @@
+const configure = require('mobx').configure;
+
 // reducing console output
 console.error = e => console.log(
   'ERROR',
   e instanceof Error ? e.message : e
 )
+
+configure({ disableErrorBoundaries: true });
+
 
 const TAX = 0.2
 
