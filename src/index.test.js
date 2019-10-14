@@ -1,13 +1,8 @@
-const configure = require('mobx').configure;
-
 // reducing console output
 console.error = e => console.log(
   'ERROR',
   e instanceof Error ? e.message : e
 )
-
-configure({ disableErrorBoundaries: true });
-
 
 const TAX = 0.2
 
@@ -15,7 +10,8 @@ const TAX = 0.2
 // to horrible bugs at large application
 describe('recalculations and exceptions', () => {
   describe('mobx', () => {
-    const { observable, computed, autorun } = require('mobx')
+    const { observable, computed, autorun, configure } = require('mobx')
+    configure({ disableErrorBoundaries: true })
 
     const price = observable.box(0)
     const tax = computed(() => price.get() * TAX)
@@ -49,12 +45,14 @@ describe('recalculations and exceptions', () => {
       price: price.get(),
       cost: cost.get(),
     }
+    // don't work (just log the error) without
+    // `configure({ disableErrorBoundaries: true })`
+    // that is not default and spam warning to the console
     test(`
       should throw an error at updating
       if recalculation is throw an error`,
       () => {
         expectedCalls = expectedCalls
-        // mobx here just log the error
         expect(() => price.set(110n)).toThrow()
       }
     )
@@ -63,6 +61,7 @@ describe('recalculations and exceptions', () => {
       should not save any updates
       if any computed is throw an error`,
       () => {
+        // ERROR here
         // mobx is not revert updates of observables
         // if its derived observables thrown
         expect(valuesBeforeThrow.price === price.get()).toBe(true)
@@ -81,6 +80,7 @@ describe('recalculations and exceptions', () => {
       should save last valid result
       if one of dependencies is thrown an error`,
       () => {
+        // ERROR here
         // here `cost` can not recalculated
         // becouse price was saved with incompatible type
         expect(valuesBeforeThrow.cost).toBe(cost.get())
@@ -162,6 +162,7 @@ describe('recalculations and exceptions', () => {
       should not save any updates
       if any computed is throw an error`,
       () => {
+        // ERROR here
         // in redux computed (memoized selectors) values
         // calculated in subscriptions, after store updates
         expect(valuesBeforeThrow.price === priceSelector(store.getState())).toBe(true)
@@ -180,6 +181,7 @@ describe('recalculations and exceptions', () => {
       should save last valid result
       if one of dependencies is thrown an error`,
       () => {
+        // ERROR here
         // here `cost` can not recalculated
         // becouse price was saved with incompatible type
         expect(valuesBeforeThrow.cost).toBe(costSelector(store.getState()))
@@ -264,8 +266,6 @@ describe('recalculations and exceptions', () => {
       should save last valid result
       if one of dependencies is thrown an error`,
       () => {
-        // here `cost` can not recalculated
-        // becouse price was saved with incompatible type
         expect(valuesBeforeThrow.cost).toBe(getState(costAtom))
       }
     )
